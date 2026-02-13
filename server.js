@@ -11,34 +11,52 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Initialize Firebase Admin SDK
+// Initialize Firebase Admin with error handling
 let serviceAccount;
 
 try {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    // Vercel deployment
+    // Vercel environment
     const base64Key = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
     const jsonString = Buffer.from(base64Key, 'base64').toString('utf8');
     serviceAccount = JSON.parse(jsonString);
-    console.log('Using Firebase config from Vercel env');
+    console.log('✅ Using Firebase config from Vercel env');
   } else {
-    // Local development
-    serviceAccount = require('./serviceAccountKey.json');
-    console.log('Using local Firebase config file');
+    // Local development - only try to require local file in development
+    try {
+      serviceAccount = require('./serviceAccountKey.json');
+      console.log('✅ Using local Firebase config file');
+    } catch (e) {
+      console.log('⚠️ No local serviceAccountKey.json found');
+    }
   }
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-
-  console.log('Firebase Admin initialized successfully');
+  // Only initialize if we have serviceAccount
+  if (serviceAccount) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('✅ Firebase Admin initialized successfully');
+  } else {
+    console.log('⚠️ Firebase Admin not initialized - no credentials');
+  }
 } catch (error) {
-  console.error('Firebase admin initialization error:', error);
+  console.error('❌ Firebase admin initialization error:', error.message);
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+// Test endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'API is working!', 
+    firebase: admin.apps.length ? 'initialized' : 'not initialized'
+  });
 });
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
 
 const db = admin.firestore();
 
