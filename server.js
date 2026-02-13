@@ -12,7 +12,29 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize Firebase Admin SDK
-const serviceAccount = require('./serviceAccountKey.json');
+let serviceAccount;
+
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    // Vercel deployment
+    const base64Key = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+    const jsonString = Buffer.from(base64Key, 'base64').toString('utf8');
+    serviceAccount = JSON.parse(jsonString);
+    console.log('Using Firebase config from Vercel env');
+  } else {
+    // Local development
+    serviceAccount = require('./serviceAccountKey.json');
+    console.log('Using local Firebase config file');
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+
+  console.log('Firebase Admin initialized successfully');
+} catch (error) {
+  console.error('Firebase admin initialization error:', error);
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
