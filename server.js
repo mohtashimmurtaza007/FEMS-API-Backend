@@ -95,6 +95,7 @@ const getEmissionFactor = (transportMode, fuelTypes, cooledTransport) => {
 
 // POST /api/calculate-carbon
 app.post('/api/calculate-carbon', async (req, res) => {
+  debugger;
   try {
     const {
       userId,
