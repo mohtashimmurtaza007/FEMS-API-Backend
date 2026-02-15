@@ -59,6 +59,42 @@ app.get('/api/health', (req, res) => {
 
 
 const db = admin.firestore();
+// ============ NEW: COST CALCULATION FUNCTION ============
+const getCostPerTonneKm = (transportMode, cooledTransport) => {
+  let costPerTonneKm = 0.10; // Default cost in USD per tonne-km
+  
+  switch(transportMode) {
+    case 'truck':
+      costPerTonneKm = 0.15; // $0.15 per tonne-km
+      break;
+      
+    case 'ship':
+      costPerTonneKm = 0.02; // $0.02 per tonne-km (cheapest)
+      break;
+      
+    case 'plane':
+      costPerTonneKm = 1.20; // $1.20 per tonne-km (most expensive)
+      break;
+      
+    case 'train':
+      costPerTonneKm = 0.05; // $0.05 per tonne-km
+      break;
+      
+    case 'intermodal':
+      costPerTonneKm = 0.08; // $0.08 per tonne-km
+      break;
+      
+    default:
+      costPerTonneKm = 0.10;
+  }
+  
+  // Add cooling surcharge (40% increase)
+  if (cooledTransport) {
+    costPerTonneKm *= 1.4;
+  }
+  
+  return costPerTonneKm;
+};
 
 // Helper function: Calculate distance using Haversine formula
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -187,6 +223,11 @@ app.post('/api/calculate-carbon', async (req, res) => {
 
     // Calculate trees needed (1 tree absorbs ~21 kg CO2 per year)
     const treesNeeded = Math.ceil(carbonFootprint / 21);
+    // ============ NEW: COST CALCULATION ============
+    const costPerTonneKm = getCostPerTonneKm(transportMode, cooledTransport);
+    const transportCost = totalWeight * distance * costPerTonneKm;
+    const carbonOffsetCost = carbonFootprint * 0.02; // $0.02 per kg CO2
+    const totalCost = transportCost + carbonOffsetCost;
 
     // Prepare calculation result
     const calculationData = {
@@ -214,6 +255,13 @@ app.post('/api/calculate-carbon', async (req, res) => {
       emissionFactor: parseFloat(emissionFactor.toFixed(4)),
       carbonFootprint: parseFloat(carbonFootprint.toFixed(2)),
       treesNeeded,
+      // ============ NEW: COST DATA ============
+      costPerTonneKm: parseFloat(costPerTonneKm.toFixed(4)),
+      transportCost: parseFloat(transportCost.toFixed(2)),
+      carbonOffsetCost: parseFloat(carbonOffsetCost.toFixed(2)),
+      totalCost: parseFloat(totalCost.toFixed(2)),
+      currency: 'USD',
+
       
       // Metadata
       calculatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -235,7 +283,12 @@ app.post('/api/calculate-carbon', async (req, res) => {
         emissionFactor: calculationData.emissionFactor,
         treesNeeded: calculationData.treesNeeded,
         transportMode: calculationData.transportMode,
-        cooledTransport: calculationData.cooledTransport
+        cooledTransport: calculationData.cooledTransport,
+          
+        transportCost: calculationData.transportCost,
+        carbonOffsetCost: calculationData.carbonOffsetCost,
+        totalCost: calculationData.totalCost,
+        currency: calculationData.currency
       }
     });
 
@@ -372,6 +425,7 @@ app.get('/api/stats/:userId', async (req, res) => {
     let totalWeight = 0;
     let calculationCount = 0;
     const transportModes = {};
+      let totalCost = 0; // NEW
 
     snapshot.forEach(doc => {
       const data = doc.data();
@@ -383,6 +437,13 @@ app.get('/api/stats/:userId', async (req, res) => {
       if (data.transportMode) {
         transportModes[data.transportMode] = (transportModes[data.transportMode] || 0) + 1;
       }
+       // NEW: Calculate cost for each record
+      if (data.totalWeight && data.distance && data.transportMode && data.carbonFootprint) {
+        const costPerTonneKm = getCostPerTonneKm(data.transportMode, data.cooledTransport || false);
+        const transportCost = data.totalWeight * data.distance * costPerTonneKm;
+        const carbonOffsetCost = data.carbonFootprint * 0.02;
+        totalCost += (transportCost + carbonOffsetCost);
+      }
     });
 
     res.status(200).json({
@@ -391,6 +452,8 @@ app.get('/api/stats/:userId', async (req, res) => {
         totalCarbonFootprint: parseFloat(totalCarbonFootprint.toFixed(2)),
         totalDistance: parseFloat(totalDistance.toFixed(2)),
         totalWeight: parseFloat(totalWeight.toFixed(2)),
+         totalCost: parseFloat(totalCost.toFixed(2)), // NEW
+         
         calculationCount,
         averageCarbonPerCalculation: calculationCount > 0 
           ? parseFloat((totalCarbonFootprint / calculationCount).toFixed(2)) 
